@@ -18,6 +18,11 @@ from homeassistant.const import (
     RESTART_EXIT_CODE,
 )
 
+import ptvsd
+ptvsd.enable_attach()
+ptvsd.wait_for_attach()
+ptvsd.break_into_debugger()
+
 
 def attempt_use_uvloop():
     """Attempt to use uvloop."""
