@@ -37,6 +37,7 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
 ATTR_CHANNEL_ID = "id"
 ATTR_CHANNEL = "channel"
 ATTR_EXPIRY = "expiry"
+ATTR_NAME = "name"
 
 ATTR_DATA_LAUNCH = "launch"
 ATTR_DATA_HERO = "hero"
@@ -48,6 +49,7 @@ SUBSCRIPTION_SCHEMA = vol.All(
         vol.Required(ATTR_CHANNEL_ID): cv.string,
         vol.Required(ATTR_CHANNEL): cv.url,
         vol.Optional(ATTR_EXPIRY): vol.Any(None, cv.positive_int),
+        vol.Optional(ATTR_NAME): cv.string,
     })
 )
 
@@ -98,6 +100,9 @@ class WindowsNotificationService(BaseNotificationService):
         data = kwargs.get(ATTR_DATA, {})
 
         launch = ""
+        app_logo = "https://raw.githubusercontent.com/home-assistant/home-ass"\
+                   "istant-iOS/master/icons/release_1024.png"
+
         if data:
             launch_data = data.get(ATTR_DATA_LAUNCH)
             if launch_data:
@@ -107,16 +112,15 @@ class WindowsNotificationService(BaseNotificationService):
             if hero_image:
                 content += f"<image src=\"{hero_image}\" placement=\"hero\" />"
 
-            app_logo = data.get(ATTR_DATA_LOGO)
-            if app_logo:
-                content += f"<image src=\"{app_logo}\" \
-                    placement=\"appLogoOverride\" hint-crop=\"circle\" />"
+            app_logo = data.get(ATTR_DATA_LOGO, app_logo)
 
         body = f"""<?xml version="1.0" encoding="utf-8"?>
         <toast{launch}>
             <visual>
                 <binding template="ToastGeneric">
                     {content}
+                    <image src="{app_logo}" \
+                    placement="appLogoOverride" hint-crop="circle" />
                 </binding>
             </visual>
         </toast>"""
