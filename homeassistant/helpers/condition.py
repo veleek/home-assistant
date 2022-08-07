@@ -586,31 +586,28 @@ def sun(
     before_offset = before_offset or timedelta(0)
     after_offset = after_offset or timedelta(0)
 
-    sunrise_today = get_astral_event_date(hass, SUN_EVENT_SUNRISE, today)
-    sunset_today = get_astral_event_date(hass, SUN_EVENT_SUNSET, today)
+    sunrise = get_astral_event_date(hass, SUN_EVENT_SUNRISE, today)
+    sunset = get_astral_event_date(hass, SUN_EVENT_SUNSET, today)
 
-    sunrise = sunrise_today
-    sunset = sunset_today
-    if today > dt_util.as_local(
-        cast(datetime, sunrise_today)
-    ).date() and SUN_EVENT_SUNRISE in (before, after):
-        tomorrow = dt_util.as_local(utcnow + timedelta(days=1)).date()
-        sunrise_tomorrow = get_astral_event_date(hass, SUN_EVENT_SUNRISE, tomorrow)
-        sunrise = sunrise_tomorrow
+    has_sunrise_condition = SUN_EVENT_SUNRISE in (before, after)
+    has_sunset_condition = SUN_EVENT_SUNSET in (before, after)
 
-    if today > dt_util.as_local(
-        cast(datetime, sunset_today)
-    ).date() and SUN_EVENT_SUNSET in (before, after):
-        tomorrow = dt_util.as_local(utcnow + timedelta(days=1)).date()
-        sunset_tomorrow = get_astral_event_date(hass, SUN_EVENT_SUNSET, tomorrow)
-        sunset = sunset_tomorrow
+    after_sunrise = today > dt_util.as_local(cast(datetime, sunrise)).date()
+    if after_sunrise and has_sunrise_condition:
+        tomorrow = today + timedelta(days=1)
+        sunrise = get_astral_event_date(hass, SUN_EVENT_SUNRISE, tomorrow)
 
-    if sunrise is None and SUN_EVENT_SUNRISE in (before, after):
+    after_sunset = today > dt_util.as_local(cast(datetime, sunset)).date()
+    if after_sunset and has_sunset_condition:
+        tomorrow = today + timedelta(days=1)
+        sunset = get_astral_event_date(hass, SUN_EVENT_SUNSET, tomorrow)
+
+    if sunrise is None and has_sunrise_condition:
         # There is no sunrise today
         condition_trace_set_result(False, message="no sunrise today")
         return False
 
-    if sunset is None and SUN_EVENT_SUNSET in (before, after):
+    if sunset is None and has_sunset_condition:
         # There is no sunset today
         condition_trace_set_result(False, message="no sunset today")
         return False
