@@ -2131,6 +2131,351 @@ async def assert_automation_condition_trace(hass_ws_client, automation_id, expec
     assert condition_trace == expected
 
 
+@pytest.mark.parametrize(
+    "now_str, after, before, expected",
+    [
+        (
+            "2015-09-16 07:00:00+0000 UTC",
+            SUN_EVENT_SUNRISE,
+            None,
+            False,
+        ),  # After Sunrise @ Midnight
+        (
+            "2015-09-16 12:33:18+0000 UTC",
+            SUN_EVENT_SUNRISE,
+            None,
+            False,
+        ),  # After Sunrise @ Sunrise - 1h
+        (
+            "2015-09-16 13:32:18+0000 UTC",
+            SUN_EVENT_SUNRISE,
+            None,
+            False,
+        ),  # After Sunrise @ Sunrise - 1m
+        (
+            "2015-09-16 13:33:17+0000 UTC",
+            SUN_EVENT_SUNRISE,
+            None,
+            False,
+        ),  # After Sunrise @ Sunrise - 1s
+        (
+            "2015-09-16 13:33:18+0000 UTC",
+            SUN_EVENT_SUNRISE,
+            None,
+            False,
+        ),  # After Sunrise @ Sunrise
+        (
+            "2015-09-16 13:33:19+0000 UTC",
+            SUN_EVENT_SUNRISE,
+            None,
+            True,
+        ),  # After Sunrise @ Sunrise + 1s
+        (
+            "2015-09-16 13:34:18+0000 UTC",
+            SUN_EVENT_SUNRISE,
+            None,
+            True,
+        ),  # After Sunrise @ Sunrise + 1m
+        (
+            "2015-09-16 14:33:18+0000 UTC",
+            SUN_EVENT_SUNRISE,
+            None,
+            True,
+        ),  # After Sunrise @ Sunrise + 1h
+        (
+            "2015-09-17 00:53:45+0000 UTC",
+            SUN_EVENT_SUNRISE,
+            None,
+            True,
+        ),  # After Sunrise @ Sunset - 1h
+        (
+            "2015-09-17 01:52:45+0000 UTC",
+            SUN_EVENT_SUNRISE,
+            None,
+            True,
+        ),  # After Sunrise @ Sunset - 1m
+        (
+            "2015-09-17 01:53:44+0000 UTC",
+            SUN_EVENT_SUNRISE,
+            None,
+            True,
+        ),  # After Sunrise @ Sunset - 1s
+        (
+            "2015-09-17 01:53:45+0000 UTC",
+            SUN_EVENT_SUNRISE,
+            None,
+            True,
+        ),  # After Sunrise @ Sunset
+        (
+            "2015-09-17 01:53:46+0000 UTC",
+            SUN_EVENT_SUNRISE,
+            None,
+            True,
+        ),  # After Sunrise @ Sunset + 1s
+        (
+            "2015-09-17 01:54:45+0000 UTC",
+            SUN_EVENT_SUNRISE,
+            None,
+            True,
+        ),  # After Sunrise @ Sunset + 1m
+        (
+            "2015-09-17 02:53:45+0000 UTC",
+            SUN_EVENT_SUNRISE,
+            None,
+            True,
+        ),  # After Sunrise @ Sunset + 1h
+        (
+            "2015-09-17 06:59:59+0000 UTC",
+            SUN_EVENT_SUNRISE,
+            None,
+            True,
+        ),  # After Sunrise @ Midnight - 1s next day
+        (
+            "2015-09-16 07:00:00+0000 UTC",
+            SUN_EVENT_SUNSET,
+            None,
+            False,
+        ),  # After Sunset @ Midnight
+        (
+            "2015-09-16 12:33:18+0000 UTC",
+            SUN_EVENT_SUNSET,
+            None,
+            False,
+        ),  # After Sunset @ Sunrise - 1h
+        (
+            "2015-09-16 13:32:18+0000 UTC",
+            SUN_EVENT_SUNSET,
+            None,
+            False,
+        ),  # After Sunset @ Sunrise - 1m
+        (
+            "2015-09-16 13:33:17+0000 UTC",
+            SUN_EVENT_SUNSET,
+            None,
+            False,
+        ),  # After Sunset @ Sunrise - 1s
+        (
+            "2015-09-16 13:33:18+0000 UTC",
+            SUN_EVENT_SUNSET,
+            None,
+            False,
+        ),  # After Sunset @ Sunrise
+        (
+            "2015-09-16 13:33:19+0000 UTC",
+            SUN_EVENT_SUNSET,
+            None,
+            False,
+        ),  # After Sunset @ Sunrise + 1s
+        (
+            "2015-09-16 13:34:18+0000 UTC",
+            SUN_EVENT_SUNSET,
+            None,
+            False,
+        ),  # After Sunset @ Sunrise + 1m
+        (
+            "2015-09-16 14:33:18+0000 UTC",
+            SUN_EVENT_SUNSET,
+            None,
+            False,
+        ),  # After Sunset @ Sunrise + 1h
+        (
+            "2015-09-17 00:53:45+0000 UTC",
+            SUN_EVENT_SUNSET,
+            None,
+            False,
+        ),  # After Sunset @ Sunset - 1h
+        (
+            "2015-09-17 01:52:45+0000 UTC",
+            SUN_EVENT_SUNSET,
+            None,
+            False,
+        ),  # After Sunset @ Sunset - 1m
+        (
+            "2015-09-17 01:53:44+0000 UTC",
+            SUN_EVENT_SUNSET,
+            None,
+            False,
+        ),  # After Sunset @ Sunset - 1s
+        (
+            "2015-09-17 01:53:45+0000 UTC",
+            SUN_EVENT_SUNSET,
+            None,
+            True,
+        ),  # After Sunset @ Sunset
+        (
+            "2015-09-17 01:53:46+0000 UTC",
+            SUN_EVENT_SUNSET,
+            None,
+            True,
+        ),  # After Sunset @ Sunset + 1s
+        (
+            "2015-09-17 01:54:45+0000 UTC",
+            SUN_EVENT_SUNSET,
+            None,
+            True,
+        ),  # After Sunset @ Sunset + 1m
+        (
+            "2015-09-17 02:53:45+0000 UTC",
+            SUN_EVENT_SUNSET,
+            None,
+            True,
+        ),  # After Sunset @ Sunset + 1h
+        (
+            "2015-09-17 06:59:59+0000 UTC",
+            SUN_EVENT_SUNSET,
+            None,
+            True,
+        ),  # After Sunset @ Midnight - 1s next day
+        (
+            "2015-09-16 07:00:00+0000 UTC",
+            SUN_EVENT_SUNRISE,
+            SUN_EVENT_SUNSET,
+            False,
+        ),  # Daylight  @ Midnight
+        (
+            "2015-09-16 12:33:18+0000 UTC",
+            SUN_EVENT_SUNRISE,
+            SUN_EVENT_SUNSET,
+            False,
+        ),  # Daylight  @ Sunrise - 1h
+        (
+            "2015-09-16 13:32:18+0000 UTC",
+            SUN_EVENT_SUNRISE,
+            SUN_EVENT_SUNSET,
+            False,
+        ),  # Daylight  @ Sunrise - 1m
+        (
+            "2015-09-16 13:33:17+0000 UTC",
+            SUN_EVENT_SUNRISE,
+            SUN_EVENT_SUNSET,
+            False,
+        ),  # Daylight  @ Sunrise - 1s
+        (
+            "2015-09-16 13:33:18+0000 UTC",
+            SUN_EVENT_SUNRISE,
+            SUN_EVENT_SUNSET,
+            False,
+        ),  # Daylight  @ Sunrise
+        (
+            "2015-09-16 13:33:19+0000 UTC",
+            SUN_EVENT_SUNRISE,
+            SUN_EVENT_SUNSET,
+            True,
+        ),  # Daylight  @ Sunrise + 1s
+        (
+            "2015-09-16 13:34:18+0000 UTC",
+            SUN_EVENT_SUNRISE,
+            SUN_EVENT_SUNSET,
+            True,
+        ),  # Daylight  @ Sunrise + 1m
+        (
+            "2015-09-16 14:33:18+0000 UTC",
+            SUN_EVENT_SUNRISE,
+            SUN_EVENT_SUNSET,
+            True,
+        ),  # Daylight  @ Sunrise + 1h
+        (
+            "2015-09-17 00:53:45+0000 UTC",
+            SUN_EVENT_SUNRISE,
+            SUN_EVENT_SUNSET,
+            True,
+        ),  # Daylight  @ Sunset - 1h
+        (
+            "2015-09-17 01:52:45+0000 UTC",
+            SUN_EVENT_SUNRISE,
+            SUN_EVENT_SUNSET,
+            True,
+        ),  # Daylight  @ Sunset - 1m
+        (
+            "2015-09-17 01:53:44+0000 UTC",
+            SUN_EVENT_SUNRISE,
+            SUN_EVENT_SUNSET,
+            True,
+        ),  # Daylight  @ Sunset - 1s
+        (
+            "2015-09-17 01:53:45+0000 UTC",
+            SUN_EVENT_SUNRISE,
+            SUN_EVENT_SUNSET,
+            False,
+        ),  # Daylight  @ Sunset
+        (
+            "2015-09-17 01:53:46+0000 UTC",
+            SUN_EVENT_SUNRISE,
+            SUN_EVENT_SUNSET,
+            False,
+        ),  # Daylight  @ Sunset + 1s
+        (
+            "2015-09-17 01:54:45+0000 UTC",
+            SUN_EVENT_SUNRISE,
+            SUN_EVENT_SUNSET,
+            False,
+        ),  # Daylight  @ Sunset + 1m
+        (
+            "2015-09-17 02:53:45+0000 UTC",
+            SUN_EVENT_SUNRISE,
+            SUN_EVENT_SUNSET,
+            False,
+        ),  # Daylight  @ Sunset + 1h
+        (
+            "2015-09-17 06:59:59+0000 UTC",
+            SUN_EVENT_SUNRISE,
+            SUN_EVENT_SUNSET,
+            False,
+        ),  # Daylight  @ Midnight - 1s next day
+    ],
+)
+async def test_sun_condition(hass, now_str, after, before, expected):
+    """
+    A test that verifies the behavior of the sun condition for various values of before and after.  For a given before
+    and after value, the test verifies the expected result, and then swaps before and after and verifies that the result
+    has swapped.
+
+    For example, if the time is noon:
+    * Before = Sunset, After = None, Expected = true
+    * Before = None, After = Sunset, Expected = false
+
+    ```plain
+    sunrise: 2015-09-16 06:33:18 local, sunset: 2015-09-16 18:53:45 local
+    sunrise: 2015-09-16 13:33:18 UTC,   sunset: 2015-09-17 01:53:45 UTC
+    ```
+    """
+
+    time_format = "%Y-%m-%d %H:%M:%S%z %Z"
+    now = datetime.strptime(now_str, time_format)
+
+    with patch("homeassistant.util.dt.utcnow", return_value=now):
+        # Verify result with provided before/after order.
+        result = condition.sun(hass, before, after, None, None)
+        assert result == expected
+
+        # Verify result is inverted when before/after swapped.
+        result = condition.sun(hass, after, before, None, None)
+        assert result != expected
+
+
+async def test_sun_condition_no_sunrise(hass):
+    """
+    Test what happens when there is no sunrise
+    """
+
+    time_format = "%Y-%m-%d %H:%M:%S%z %Z"
+    now = datetime.strptime("2015-09-16 07:00:00+0000 UTC", time_format)
+
+    with patch("homeassistant.util.dt.utcnow", return_value=now):
+        with patch(
+            "homeassistant.helpers.sun.get_astral_event_date", return_value=None
+        ):
+            # Verify result with provided before/after order.
+            result = condition.sun(
+                hass,
+                before=SUN_EVENT_SUNRISE,
+                after=None,
+                before_offset=None,
+                after_offset=None,
+            )
+            assert result == False
+
+
 async def test_if_action_before_sunrise_no_offset(hass, hass_ws_client, calls):
     """
     Test if action was before sunrise.
