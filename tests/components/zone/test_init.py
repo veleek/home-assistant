@@ -225,7 +225,8 @@ async def test_in_zone_works_for_passive_zones(hass: HomeAssistant) -> None:
         },
     )
 
-    assert zone.in_zone(hass.states.get("zone.passive_zone"), latitude, longitude)
+    passiveZone: zone.Zone = hass.states.get("zone.passive_zone")
+    assert passiveZone.is_in_zone(latitude, longitude)
 
 
 async def test_core_config_update(hass: HomeAssistant) -> None:
@@ -518,7 +519,8 @@ async def test_unavailable_zone(hass: HomeAssistant) -> None:
 
     assert zone.async_active_zone(hass, 0.0, 0.01) is None
 
-    assert zone.in_zone(hass.states.get("zone.bla"), 0, 0) is False
+    blaZone: zone.Zone = hass.states.get("zone.bla")
+    assert blaZone.is_in_zone(0, 0) is False
 
 
 async def test_state(hass: HomeAssistant) -> None:

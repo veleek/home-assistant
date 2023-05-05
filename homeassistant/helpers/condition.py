@@ -938,9 +938,9 @@ def zone(
             "zone", f"entity {entity_id} has no 'longitude' attribute"
         )
 
-    return zone_cmp.in_zone(
-        zone_ent, latitude, longitude, entity.attributes.get(ATTR_GPS_ACCURACY, 0)
-    )
+    gps_accuracy = entity.attributes.get(ATTR_GPS_ACCURACY, 0)
+    zone_entity: zone_cmp.Zone = zone_ent
+    return zone_entity.is_in_zone([latitude, longitude], gps_accuracy)
 
 
 def zone_from_config(config: ConfigType) -> ConditionCheckerType:

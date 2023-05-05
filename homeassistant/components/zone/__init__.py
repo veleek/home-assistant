@@ -1,8 +1,10 @@
 """Support for the definition of zones."""
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
 from collections.abc import Callable
 import logging
+from types import SimpleNamespace
 from typing import Any, cast
 
 from typing_extensions import Self
@@ -21,6 +23,7 @@ from homeassistant.const import (
     CONF_LONGITUDE,
     CONF_NAME,
     CONF_RADIUS,
+    CONF_TYPE,
     EVENT_CORE_CONFIG_UPDATE,
     SERVICE_RELOAD,
     STATE_HOME,
@@ -41,7 +44,18 @@ from homeassistant.helpers.typing import ConfigType
 from homeassistant.loader import bind_hass
 from homeassistant.util.location import distance
 
-from .const import ATTR_PASSIVE, ATTR_RADIUS, CONF_PASSIVE, DOMAIN, HOME_ZONE
+from .const import (
+    ATTR_PASSIVE,
+    ATTR_POINTS,
+    ATTR_RADIUS,
+    CONF_PASSIVE,
+    CONF_POINTS,
+    DOMAIN,
+    HOME_ZONE,
+    ZONE_TYPE_CIRCLE,
+    ZONE_TYPE_MULTI,
+    ZONE_TYPE_POLYGON,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -54,14 +68,24 @@ ENTITY_ID_HOME = ENTITY_ID_FORMAT.format(HOME_ZONE)
 ICON_HOME = "mdi:home"
 ICON_IMPORT = "mdi:import"
 
-CREATE_FIELDS = {
+COMMON_FIELDS = {
     vol.Required(CONF_NAME): cv.string,
-    vol.Required(CONF_LATITUDE): cv.latitude,
-    vol.Required(CONF_LONGITUDE): cv.longitude,
-    vol.Optional(CONF_RADIUS, default=DEFAULT_RADIUS): vol.Coerce(float),
     vol.Optional(CONF_PASSIVE, default=DEFAULT_PASSIVE): cv.boolean,
     vol.Optional(CONF_ICON): cv.icon,
 }
+
+CREATE_FIELDS = vol.Schema(
+    {
+        vol.All([
+            COMMON_FIELDS,
+            vol.Schema(
+                # vol.Required(CONF_LATITUDE): cv.latitude,
+                # vol.Required(CONF_LONGITUDE): cv.longitude,
+                # vol.Optional(CONF_RADIUS, default=DEFAULT_RADIUS): vol.Coerce(float),
+            })
+        )
+    }
+)
 
 
 UPDATE_FIELDS = {
@@ -71,6 +95,10 @@ UPDATE_FIELDS = {
     vol.Optional(CONF_RADIUS): vol.Coerce(float),
     vol.Optional(CONF_PASSIVE): cv.boolean,
     vol.Optional(CONF_ICON): cv.icon,
+}
+
+POLYGON_FIELDS = {
+    vol.Required(CONF_POINTS): vol.list[vol.exact_sequence([cv.latitude, cv.longitude])],
 }
 
 
@@ -85,7 +113,8 @@ def empty_value(value: Any) -> Any:
 CONFIG_SCHEMA = vol.Schema(
     {
         vol.Optional(DOMAIN, default=[]): vol.Any(
-            vol.All(cv.ensure_list, [vol.Schema(CREATE_FIELDS)]),
+            vol.All(cv.ensure_list, [vol.Schema(COMMON_FIELDS), vol.Schema(CREATE_FIELDS)]),
+            vol.All(cv.ensure_list, [vol.Schema(COMMON_FIELDS), vol.Schema(POLYGON_FIELDS)]),
             empty_value,
         )
     },
@@ -111,8 +140,8 @@ def async_active_zone(
         for entity_id in sorted(hass.states.async_entity_ids(DOMAIN))
     )
 
-    min_dist = None
-    closest = None
+    min_dist: float = float.infinity
+    closest: State = None
 
     for zone in zones:
         if zone.state == STATE_UNAVAILABLE or zone.attributes.get(ATTR_PASSIVE):
@@ -129,39 +158,16 @@ def async_active_zone(
             continue
 
         within_zone = zone_dist - radius < zone.attributes[ATTR_RADIUS]
-        closer_zone = closest is None or zone_dist < min_dist  # type: ignore[unreachable]
-        smaller_zone = (
-            zone_dist == min_dist
-            and zone.attributes[ATTR_RADIUS]
-            < cast(State, closest).attributes[ATTR_RADIUS]
-        )
 
-        if within_zone and (closer_zone or smaller_zone):
-            min_dist = zone_dist
-            closest = zone
+        if within_zone:
+            closer_zone = closest is None or zone_dist < min_dist  # type: ignore[unreachable]
+            smaller_zone = zone_dist == min_dist and zone.attributes[ATTR_RADIUS] < closest.attributes[ATTR_RADIUS]
+
+            if (closer_zone or smaller_zone):
+                min_dist = zone_dist
+                closest = zone
 
     return closest
-
-
-def in_zone(zone: State, latitude: float, longitude: float, radius: float = 0) -> bool:
-    """Test if given latitude, longitude is in given zone.
-
-    Async friendly.
-    """
-    if zone.state == STATE_UNAVAILABLE:
-        return False
-
-    zone_dist = distance(
-        latitude,
-        longitude,
-        zone.attributes[ATTR_LATITUDE],
-        zone.attributes[ATTR_LONGITUDE],
-    )
-
-    if zone_dist is None or zone.attributes[ATTR_RADIUS] is None:
-        return False
-    return zone_dist - radius < cast(float, zone.attributes[ATTR_RADIUS])
-
 
 class ZoneStorageCollection(collection.DictStorageCollection):
     """Zone collection stored in storage."""
@@ -231,7 +237,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     if component.get_entity("zone.home"):
         return True
 
-    home_zone = Zone(_home_conf(hass))
+    home_zone = CircleZone(_home_conf(hass), False)
     home_zone.entity_id = ENTITY_ID_HOME
     await component.async_add_entities([home_zone])
 
@@ -282,16 +288,15 @@ async def async_unload_entry(
     """Will be called once we remove it."""
     return True
 
-
 class Zone(collection.CollectionEntity):
     """Representation of a Zone."""
 
     editable: bool
 
-    def __init__(self, config: ConfigType) -> None:
+    def __init__(self, config: ConfigType, editable: bool = True) -> None:
         """Initialize the zone."""
         self._config = config
-        self.editable = True
+        self.editable = editable
         self._attrs: dict | None = None
         self._remove_listener: Callable[[], None] | None = None
         self._persons_in_zone: set[str] = set()
@@ -299,22 +304,34 @@ class Zone(collection.CollectionEntity):
     @classmethod
     def from_storage(cls, config: ConfigType) -> Self:
         """Return entity instance initialized from storage."""
-        zone = cls(config)
-        zone.editable = True
-        zone._generate_attrs()
-        return zone
+        return cls.from_config(config, True)
 
     @classmethod
     def from_yaml(cls, config: ConfigType) -> Self:
         """Return entity instance initialized from yaml."""
-        zone = cls(config)
-        zone.editable = False
+        return cls.from_config(config, False)
+
+    @classmethod
+    def from_config(cls, config: ConfigType, editable: bool) -> Self:
+        """Return entity instance initialized from config."""
+        type: str = config[CONF_TYPE]
+
+        zone = None
+        if(type == ZONE_TYPE_CIRCLE or type == None):
+            zone = CircleZone(config, editable)
+        elif(type == ZONE_TYPE_POLYGON):
+            zone = PolygonZone(config, editable)
+        elif(type == ZONE_TYPE_MULTI):
+            zone = MultiZone(config, editable)
+        else:
+            raise ValueError(f"Unknown zone type {type}")
+
         zone._generate_attrs()
         return zone
 
     @property
     def state(self) -> int:
-        """Return the state property really does nothing for a zone."""
+        """Return the state property which indicates the number of people within a zone."""
         return len(self._persons_in_zone)
 
     @property
@@ -379,14 +396,14 @@ class Zone(collection.CollectionEntity):
     @callback
     def _generate_attrs(self) -> None:
         """Generate new attrs based on config."""
-        self._attr_extra_state_attributes = {
-            ATTR_LATITUDE: self._config[CONF_LATITUDE],
-            ATTR_LONGITUDE: self._config[CONF_LONGITUDE],
-            ATTR_RADIUS: self._config[CONF_RADIUS],
+        attrs = {
             ATTR_PASSIVE: self._config[CONF_PASSIVE],
-            ATTR_PERSONS: sorted(self._persons_in_zone),
             ATTR_EDITABLE: self.editable,
+            ATTR_PERSONS: sorted(self._persons_in_zone),
         }
+
+        attrs.update(self._generate_specific_attrs())
+        self._attr_extra_state_attributes = attrs
 
     @callback
     def _state_is_in_zone(self, state: State | None) -> bool:
@@ -404,3 +421,81 @@ class Zone(collection.CollectionEntity):
                 or (state.state == STATE_HOME and self.entity_id == ENTITY_ID_HOME)
             )
         )
+
+    @abstractmethod
+    def _generate_specific_attrs(self) -> None:
+        """Generate attributes that are specific to a given type of zone."""
+
+    @abstractmethod
+    def is_in_zone(self, position: tuple[float, float]) -> bool:
+        """Return if given position is in zone."""
+
+class CircleZone(Zone):
+    """Representation of a Circle Zone."""
+
+    def __init__(self, config: ConfigType, editable: bool) -> None:
+        """Initialize the circle zone."""
+        super().__init__(config, editable)
+
+    def is_in_zone(self, position: tuple[float, float], radius: float = 0) -> bool:
+        """Return if given position is in zone."""
+        if self.state == STATE_UNAVAILABLE:
+            return False
+
+        zone_dist = distance(
+            position[0],
+            position[1],
+            self.attributes[ATTR_LATITUDE],
+            self.attributes[ATTR_LONGITUDE],
+        )
+
+        if zone_dist is None or self.attributes[ATTR_RADIUS] is None:
+            return False
+        return zone_dist - radius < cast(float, self.attributes[ATTR_RADIUS])
+
+    def _generate_specific_attrs(self) -> None:
+        """Generate specific attributes for this zone."""
+        return {
+            ATTR_LATITUDE: self._config[CONF_LATITUDE],
+            ATTR_LONGITUDE: self._config[CONF_LONGITUDE],
+            ATTR_RADIUS: self._config[CONF_RADIUS],
+        }
+
+class PolygonZone(Zone):
+    """Representation of a Polygon Zone."""
+
+    def __init__(self, points: list[tuple[float, float]]) -> None:
+        """Initialize the polygon zone."""
+        self.points = points
+
+    def is_in_zone(self, position: tuple[float, float]) -> bool:
+        """Return if given position is in zone."""
+        return self.point_in_polygon(position, self.points)
+
+    def point_in_polygon(point: tuple[float, float], polygon: list[tuple[float, float]]) -> bool:
+        """Return if given point is in polygon."""
+        x = point[0]
+        y = point[1]
+        return False
+
+    def _generate_specific_attrs(self) -> dict:
+        """Generate specific attributes for this zone."""
+        return {
+            ATTR_POINTS: self.points,
+        }
+
+class MultiZone(Zone):
+    """Representation of a Multi Zone."""
+
+    def __init__(self, config: ConfigType, editable: bool) -> None:
+        """Initialize the multi zone."""
+
+        Zone.from_config
+        self.zones = zones
+
+    def is_in_zone(self, position: tuple[float, float]) -> bool:
+        """Return if given position is in zone."""
+        for zone in self.zones:
+            if zone.is_in_zone(position):
+                return True
+        return False
