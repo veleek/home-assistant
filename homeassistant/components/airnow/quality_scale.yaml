@@ -57,9 +57,7 @@ rules:
   docs-use-cases: todo
   dynamic-devices: todo
   entity-category: todo
-  entity-device-class:
-    status: todo
-    comment: The ozone sensor can still use the ozone device class.
+  entity-device-class: done
   entity-disabled-by-default: todo
   entity-translations: todo
   exception-translations: todo
