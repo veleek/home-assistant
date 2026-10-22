@@ -1,6 +1,7 @@
 """Provide functionality to keep track of devices."""
 
 import logging
+import sys
 from typing import TYPE_CHECKING, Any, final, override
 
 from propcache.api import cached_property
@@ -163,6 +164,13 @@ def _async_register_mac(
         ent_reg.async_update_entity(entity_id, disabled_by=None)
 
     hass.bus.async_listen(dr.EVENT_DEVICE_REGISTRY_UPDATED, handle_device_event)
+
+
+def _zone_size(zone_state: State) -> float:
+    """Return the size of a zone used to rank overlapping zones."""
+    if (shape := zone.zone_shape_from_state(zone_state)) is None:
+        return sys.maxsize
+    return shape.size
 
 
 class BaseTrackerEntity(Entity):
@@ -369,7 +377,7 @@ class TrackerEntity(
                     for entity_id in zones
                     if (zone_state := self.hass.states.get(entity_id)) is not None
                 ),
-                key=lambda z: z.attributes[ZoneEntityStateAttribute.RADIUS],
+                key=_zone_size,
             )
             self.__active_zone = next(
                 (

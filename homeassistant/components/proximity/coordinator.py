@@ -16,7 +16,7 @@ from homeassistant.components.person import (
 from homeassistant.components.zone import (
     DOMAIN as ZONE_DOMAIN,
     ENTITY_ID_HOME,
-    ZoneEntityStateAttribute,
+    zone_shape_from_state,
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
@@ -36,7 +36,6 @@ from homeassistant.core import (
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.issue_registry import IssueSeverity, async_create_issue
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
-from homeassistant.util.location import distance
 
 from .const import (
     ATTR_DIR_OF_TRAVEL,
@@ -233,22 +232,17 @@ class ProximityDataUpdateCoordinator(DataUpdateCoordinator[ProximityData]):
             )
             return None
 
-        distance_to_centre = distance(
-            zone.attributes[EntityStateAttribute.LATITUDE],
-            zone.attributes[EntityStateAttribute.LONGITUDE],
-            latitude,
-            longitude,
-        )
-
         # it is ensured, that distance can't be None,
-        # since zones must have lat/lon coordinates
-        assert distance_to_centre is not None
+        # since zones must have a shape
+        zone_shape = zone_shape_from_state(zone)
+        assert zone_shape is not None
+        distance_to_edge = zone_shape.distance_to_edge(latitude, longitude)
+        assert distance_to_edge is not None
 
-        zone_radius: float = zone.attributes[ZoneEntityStateAttribute.RADIUS]
-        if zone_radius > distance_to_centre:
+        if distance_to_edge < 0:
             # we've arrived the zone
             return 0
-        return round(distance_to_centre - zone_radius)
+        return round(distance_to_edge)
 
     def _calc_direction_of_travel(
         self,
@@ -275,21 +269,13 @@ class ProximityDataUpdateCoordinator(DataUpdateCoordinator[ProximityData]):
         ):
             return None
 
-        old_distance = distance(
-            zone.attributes[EntityStateAttribute.LATITUDE],
-            zone.attributes[EntityStateAttribute.LONGITUDE],
-            old_latitude,
-            old_longitude,
-        )
-        new_distance = distance(
-            zone.attributes[EntityStateAttribute.LATITUDE],
-            zone.attributes[EntityStateAttribute.LONGITUDE],
-            new_latitude,
-            new_longitude,
-        )
-
         # it is ensured, that distance can't be None,
-        # since zones must have lat/lon coordinates
+        # since zones must have a shape
+        zone_shape = zone_shape_from_state(zone)
+        assert zone_shape is not None
+        old_distance = zone_shape.distance_to_edge(old_latitude, old_longitude)
+        new_distance = zone_shape.distance_to_edge(new_latitude, new_longitude)
+
         assert old_distance is not None
         assert new_distance is not None
         distance_travelled = round(new_distance - old_distance, 1)
