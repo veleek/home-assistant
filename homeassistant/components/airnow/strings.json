@@ -37,9 +37,6 @@
   },
   "entity": {
     "sensor": {
-      "o3": {
-        "name": "[%key:component::sensor::entity_component::ozone::name%]"
-      },
       "station": {
         "name": "Reporting station",
         "state_attributes": {
