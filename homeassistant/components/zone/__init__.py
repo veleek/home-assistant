@@ -39,7 +39,6 @@ from homeassistant.helpers import (
 )
 from homeassistant.helpers.typing import ConfigType, VolDictType
 from homeassistant.util.hass_dict import HassKey
-from homeassistant.util.location import distance
 
 from .const import (
     ATTR_PASSIVE,
@@ -51,6 +50,7 @@ from .const import (
     ZoneEntityStateAttribute,
 )
 from .services import async_setup_services
+from .shape import CircleZoneShape, ZoneShape, zone_shape_from_state
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -98,12 +98,15 @@ __all__ = [
     "ICON_IMPORT",
     "SERVICE_RELOAD",
     "UPDATE_FIELDS",
+    "CircleZoneShape",
     "Zone",
     "ZoneEntityStateAttribute",
+    "ZoneShape",
     "ZoneStorageCollection",
     "async_active_zone",
     "async_get_enclosing_zones",
     "async_in_zones",
+    "zone_shape_from_state",
 ]
 
 
@@ -152,12 +155,12 @@ def async_in_zones(
     Returns a tuple of the active zone and a list of all zones which contain the
     given latitude and longitude. The active zone is the smallest containing
     zone, using distance to the zone center as a tie breaker. The list of zones
-    is sorted by radius and then by distance so that the smallest and closest
+    is sorted by size and then by distance so that the smallest and closest
     zone is first.
 
     This method must be run in the event loop.
     """
-    min_radius: float = sys.maxsize
+    min_size: float = sys.maxsize
     min_dist: float = sys.maxsize
     active_zone: State | None = None
     zones: list[tuple[str, float, float]] = []
@@ -170,49 +173,32 @@ def async_in_zones(
             not (zone := hass.states.get(entity_id))
             # Skip unavailable zones
             or zone.state == STATE_UNAVAILABLE
-        ):
-            continue
-        zone_attrs = zone.attributes
-        if (
-            # Skip zones where we cannot calculate distance
-            (
-                zone_dist := distance(
-                    latitude,
-                    longitude,
-                    zone_attrs[EntityStateAttribute.LATITUDE],
-                    zone_attrs[EntityStateAttribute.LONGITUDE],
-                )
-            )
-            is None
-            # Skip zone that are outside the radius aka the
-            # lat/long is outside the zone
-            or not (
-                zone_dist - (zone_radius := zone_attrs[ZoneEntityStateAttribute.RADIUS])
-                < radius
-            )
+            or (shape := zone_shape_from_state(zone)) is None
+            or not shape.contains_point(latitude, longitude, radius)
+            or (zone_dist := shape.distance_to_center(latitude, longitude)) is None
         ):
             continue
 
-        zones.append((zone.entity_id, zone_dist, zone_radius))
+        zone_size = shape.size
+        zones.append((zone.entity_id, zone_dist, zone_size))
 
         # Skip passive zones
-        if zone_attrs.get(ZoneEntityStateAttribute.PASSIVE):
+        if zone.attributes.get(ZoneEntityStateAttribute.PASSIVE):
             continue
 
         # Prefer the smallest zone, using distance to its center as a tie
         # breaker. Skip this zone if it is not smaller and not equally sized but
         # closer than the current best.
         if active_zone and not (
-            zone_radius < min_radius
-            or (zone_radius == min_radius and zone_dist < min_dist)
+            zone_size < min_size or (zone_size == min_size and zone_dist < min_dist)
         ):
             continue
 
-        min_radius = zone_radius
+        min_size = zone_size
         min_dist = zone_dist
         active_zone = zone
 
-    # Sort by radius and then by distance so the smallest and closest zone is
+    # Sort by size and then by distance so the smallest and closest zone is
     # first.
     zones.sort(key=lambda x: (x[2], x[1]))
     return (active_zone, [itm[0] for itm in zones])
@@ -221,12 +207,11 @@ def async_in_zones(
 def async_get_enclosing_zones(hass: HomeAssistant, zone_entity_id: str) -> list[str]:
     """Find zones which fully contain the given zone.
 
-    Returns a list of zone entity_ids whose interior contains the given zone
-    (``zone_dist + input_radius <= other_zone_radius``); a zone whose edge
-    touches another zone's edge from the inside counts as contained. Passive
-    zones are included. The queried zone itself is excluded from the result.
-    The list is sorted by radius then distance, so the smallest enclosing zone
-    is first.
+    Returns a list of zone entity_ids whose interior contains the given zone; a
+    zone whose edge touches another zone's edge from the inside counts as
+    contained. Passive zones are included. The queried zone itself is excluded
+    from the result. The list is sorted by size then distance, so the smallest
+    enclosing zone is first.
 
     Returns an empty list if the zone does not exist or is unavailable.
 
@@ -235,12 +220,9 @@ def async_get_enclosing_zones(hass: HomeAssistant, zone_entity_id: str) -> list[
     if (
         not (input_zone := hass.states.get(zone_entity_id))
         or input_zone.state == STATE_UNAVAILABLE
+        or (input_shape := zone_shape_from_state(input_zone)) is None
     ):
         return []
-    input_attrs = input_zone.attributes
-    input_latitude: float = input_attrs[EntityStateAttribute.LATITUDE]
-    input_longitude: float = input_attrs[EntityStateAttribute.LONGITUDE]
-    input_radius: float = input_attrs[ZoneEntityStateAttribute.RADIUS]
 
     zones: list[tuple[str, float, float]] = []
 
@@ -254,22 +236,13 @@ def async_get_enclosing_zones(hass: HomeAssistant, zone_entity_id: str) -> list[
             not (zone := hass.states.get(entity_id))
             # Skip unavailable zones
             or zone.state == STATE_UNAVAILABLE
+            or (shape := zone_shape_from_state(zone)) is None
+            or not shape.contains_shape(input_shape)
         ):
             continue
-        zone_attrs = zone.attributes
-        if (
-            zone_dist := distance(
-                input_latitude,
-                input_longitude,
-                zone_attrs[EntityStateAttribute.LATITUDE],
-                zone_attrs[EntityStateAttribute.LONGITUDE],
-            )
-        ) is None:
+        if (zone_dist := shape.distance_to_center(*input_shape.center)) is None:
             continue
-        zone_radius = zone_attrs[ZoneEntityStateAttribute.RADIUS]
-        if not zone_dist + input_radius <= zone_radius:
-            continue
-        zones.append((zone.entity_id, zone_dist, zone_radius))
+        zones.append((zone.entity_id, zone_dist, shape.size))
 
     zones.sort(key=lambda x: (x[2], x[1]))
     return [itm[0] for itm in zones]
@@ -318,18 +291,9 @@ def in_zone(zone: State, latitude: float, longitude: float, radius: float = 0) -
     if zone.state == STATE_UNAVAILABLE:
         return False
 
-    zone_dist = distance(
-        latitude,
-        longitude,
-        zone.attributes[EntityStateAttribute.LATITUDE],
-        zone.attributes[EntityStateAttribute.LONGITUDE],
-    )
-
-    if zone_dist is None or zone.attributes[ZoneEntityStateAttribute.RADIUS] is None:
+    if (shape := zone_shape_from_state(zone)) is None:
         return False
-    return zone_dist - radius < cast(
-        float, zone.attributes[ZoneEntityStateAttribute.RADIUS]
-    )
+    return shape.contains_point(latitude, longitude, radius)
 
 
 class ZoneStorageCollection(collection.DictStorageCollection):
